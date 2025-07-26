@@ -6,118 +6,80 @@ section .note.GNU-stack
 
 section .bss
 		grid resb GRID_SIZE  
-		pos resb 4
 		orien resb 4
+		size resb 4
+		snake_head resd 256
 
 section .data
-		clear db 27, '[2J'    ; 27 = ESC (0x1B), ANSI code
+		clear db 27, '[2J'    			; 27 = ESC (0x1B), ANSI code
 		clear_len equ $ - clear
-		cursor_home db 27, '[', 'H'    ; ESC [ H
+		cursor_home db 27, '[', 'H'		; ESC [ H
 		char_hash db '#'
 		char_space db ' '
-		char_player db '0'
+		char_player db 'o'
+		char_up db '^'
+		char_ri db '<'
+		char_le db '>'
+		char_do db 'V'
 		char_nl   db 10
 		timespec:
-		    dq 0              ; tv_sec = 0
-		    dq 75000000       ; tv_nsec = 50,000,000 ns = 50 ms
+		    dq 0              			; tv_sec = 0
+		    dq 75000000       			; tv_nsec = 50,000,000 ns = 50 ms
 
 section .text
 		global _start
 		global _termClear
 		global _writeNewLine
 		global constructMap
+		global addSnake
 		global printMap
+		global moveRight
 		extern ft_get_keypress
 
 _start:
-		mov dword [pos], 164
-		mov dword [orien], 0
+		mov DWORD [snake_head], 1056
+		mov DWORD [orien], 4
+		mov DWORD [size], 100
 _loopMain:
-		mov rax, 35        ; syscall: nanosleep
-    	mov rdi, timespec  ; pointer to timespec
-    	mov rsi, 0         ; NULL (no remainder)
+		mov rax, 35        				; syscall: nanosleep
+    	mov rdi, timespec  				; pointer to timespec
+    	mov rsi, 0         				; NULL (no remainder)
     	syscall
 		call _termClear
 		call constructMap
-		mov eax, [pos]
-		mov BYTE [r9 + rax] , 1
+		call addSnake
 		call printMap
 		call ft_get_keypress
 		cmp rax, 100
 		jne _try_left
-		mov dword [orien], 4
+		cmp DWORD [orien], 2
+		je _try_up
+		mov DWORD [orien], 4
 _try_left:
 		cmp rax, 97
 		jne _try_up
-		mov dword [orien], 2
+		cmp DWORD [orien], 4
+		je _try_up
+		mov DWORD [orien], 2
 _try_up:
 		cmp rax, 119
 		jne _try_down
-		mov dword [orien], 1
+		cmp DWORD [orien], 3
+		je _try_down
+		mov DWORD [orien], 1
 _try_down:
 		cmp rax, 115
-		jne _mov_right
-		mov dword [orien], 3
-_mov_right:
-		cmp dword [orien], 4
-		jne _mov_left
-		jne _mov_up
-		xor rax, rax
-		mov eax, dword [pos]
-		mov rbx, WIDTH
-		div rbx
-		cmp rdx, WIDTH - 2
+		jne _try_esc
+		cmp DWORD [orien], 1
+		je _try_esc
+		mov DWORD [orien], 3
+_try_esc:
+		cmp rax, 120
 		je _exit
-		add dword [pos], 2
-		xor rdx, rdx
-		xor rax, rax
-		mov eax, dword [pos]
-		mov rbx, 2
-		div rbx
-		cmp rdx, 1
-		jne _loopMain
-		inc dword [pos]
-		jmp _loopMain
-_mov_left:
-		cmp dword [orien], 2
-		jne _mov_up
-		xor rax, rax
-		mov eax, dword [pos]
-		mov rbx, WIDTH
-		div rbx
-		cmp rdx, 1
-		je _exit
-		sub dword [pos], 2
-		xor rdx, rdx
-		xor rax, rax
-		mov eax, dword [pos]
-		mov rbx, 2
-		div rbx
-		cmp rdx, 0
-		jne _loopMain
-		dec dword [pos]
-		jmp _loopMain
-_mov_up:
-		cmp dword [orien], 1
-		jne _mov_down
-		xor rax, rax
-		mov eax, dword [pos]
-		mov rbx, WIDTH
-		div rbx
-		cmp rax, 1
-		je _exit
-		sub dword [pos], WIDTH
-		jmp _loopMain
-_mov_down:
-		cmp dword [orien], 3
-		jne _loopMain
-		xor rax, rax
-		mov eax, dword [pos]
-		mov rbx, WIDTH
-		div rbx
-		cmp rax, HEIGHT - 2
-		je _exit
-		add dword [pos], WIDTH
+		call moveRight
+		call moveLeft
+		call moveUp
+		call moveDown
 		jmp _loopMain
 _exit:
     	mov rax, 60
@@ -131,6 +93,113 @@ _end:
 
 ;	Usefull functions idk
 
+;	Movements
+;		Move Right
+updateSnake:
+		mov r9, grid
+		xor rax, rax
+		inc rax
+_loopUpdate:
+		cmp eax, dword [size]
+		jge _ret
+		xor r8, r8
+		mov r8d, DWORD [snake_head + eax * 4]
+		mov DWORD [snake_head + eax * 4], edi
+		mov rdi, r8
+    	inc rax
+    	jmp _loopUpdate
+		ret
+
+moveRight:
+		mov r9, grid
+		cmp dword [orien], 4
+		jne _ret
+		xor rax, rax
+		push rdi
+		mov eax, DWORD [snake_head]
+		xor rdi, rdi
+		mov edi, eax
+		inc eax
+		cmp BYTE [r9 + rax], 2
+		jne _exit
+		mov DWORD [snake_head], eax
+		call updateSnake
+		pop rdi
+		ret
+
+moveLeft:
+		mov r9, grid
+		cmp dword [orien], 2
+		jne _ret
+		xor rax, rax
+		push rdi
+		mov eax, DWORD [snake_head]
+		xor rdi, rdi
+		mov edi, eax
+		dec eax
+		cmp BYTE [r9 + rax], 2
+		jne _exit
+		mov DWORD [snake_head], eax
+		call updateSnake
+		pop rdi
+		ret
+
+moveUp:
+		mov r9, grid
+		cmp dword [orien], 1
+		jne _ret
+		xor rax, rax
+		push rdi
+		mov eax, DWORD [snake_head]
+		xor rdi, rdi
+		mov edi, eax
+		sub eax, WIDTH
+		cmp BYTE [r9 + rax], 2
+		jne _exit
+		mov DWORD [snake_head], eax
+		call updateSnake
+		pop rdi
+		ret
+
+moveDown:
+		mov r9, grid
+		cmp dword [orien], 3
+		jne _ret
+		xor rax, rax
+		push rdi
+		mov eax, DWORD [snake_head]
+		xor rdi, rdi
+		mov edi, eax
+		add eax, WIDTH
+		cmp BYTE [r9 + rax], 2
+		jne _exit
+		mov DWORD [snake_head], eax
+		call updateSnake
+		pop rdi
+		ret
+
+
+
+;	Add Snake to map, from the array
+addSnake:
+		xor rax, rax
+		mov r9, grid
+		mov r8d, DWORD [snake_head + eax * 4]
+		mov BYTE [r9 + r8], 0
+		inc rax
+_loopAdd:
+		cmp eax, dword [size]
+		jge _ret
+		xor r8, r8
+		mov r8d, DWORD [snake_head + eax * 4]
+		mov BYTE [r9 + r8], 1
+    	inc rax
+    	jmp _loopAdd
+_ret:
+		ret
+
+
+		je _ret
 ;	Construct Map from scratch without player
 constructMap:
 		mov r9, grid
@@ -167,8 +236,6 @@ _put_space:
 		mov BYTE [r9 + r8] , 2
     	inc rbx
     	jmp _loop_x
-_ret:
-		ret
 
 
 ;	Writes map to terminal
@@ -187,10 +254,34 @@ _print:
 		jmp _afterWrite
 _trySpace:
 		cmp BYTE [r9 + rbx] , 2
-		jne _tryPlayer
+		jne _tryPlayerHead
 		mov rax, 1          ; sys_write
 		mov rdi, 1          ; stdout
 		mov rsi, char_space	; pointer to ' '
+		mov rdx, 1          ; length 1 byte
+		syscall
+		jmp _afterWrite
+_tryPlayerHead:
+		cmp BYTE [r9 + rbx] , 0
+		jne _tryPlayer
+		mov rax, 1          ; sys_write
+		mov rdi, 1          ; stdout
+		cmp DWORD [orien], 1
+		jne _tryPlayerHeadRi
+		mov rsi, char_up ; pointer to ' '
+_tryPlayerHeadRi:
+		cmp DWORD [orien], 2
+		jne _tryPlayerHeadLe
+		mov rsi, char_ri ; pointer to ' '
+_tryPlayerHeadLe:
+		cmp DWORD [orien], 4
+		jne _tryPlayerHeadDo
+		mov rsi, char_le ; pointer to ' '
+_tryPlayerHeadDo:
+		cmp DWORD [orien], 3
+		jne _writePlayerHead
+		mov rsi, char_do ; pointer to ' '
+_writePlayerHead:
 		mov rdx, 1          ; length 1 byte
 		syscall
 		jmp _afterWrite
