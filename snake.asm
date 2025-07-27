@@ -4,17 +4,35 @@ section .note.GNU-stack
 %define HEIGHT 32
 %define GRID_SIZE WIDTH*HEIGHT
 
+%define SYS_read   0
+%define SYS_ioctl  16
+
+%define STDIN      0
+%define TCGETS     0x5401
+%define TCSETS     0x5402
+%define ICANON 0x02
+%define ECHO   0x08
+
+
 section .bss
 		grid resb GRID_SIZE  
-		orien resb 4
-		size resb 4
-		snake_head resd 256
+		orien resb 4			;	where snake is looking at
+		size resb 4				;	nbr of nodes of snake
+		fruitPos resb 4			;	fruitPos = y * WIDTH + x
+		fruitActive resb 1		;	0 = no fruit	1 = 
+		snake_head resd 256		;	Array of snake's body, with 2 bytes
+								;	each reprensenting a node
+								;	in the form of nodePos = y * WIDTH + x
+		termios_oldt resb 64	;	reserving 128 (64 * 2), for termios structs
+		termios_newt resb 64	;	for get_key_press
+		read_buf resb 1			;	read buffer for keypress read...
 
 section .data
 		clear db 27, '[2J'    			; 27 = ESC (0x1B), ANSI code
 		clear_len equ $ - clear
 		cursor_home db 27, '[', 'H'		; ESC [ H
 		char_hash db '#'
+		char_fruit db '@'
 		char_space db ' '
 		char_player db 'o'
 		char_up db '^'
@@ -24,7 +42,7 @@ section .data
 		char_nl   db 10
 		timespec:
 		    dq 0              			; tv_sec = 0
-		    dq 75000000       			; tv_nsec = 50,000,000 ns = 50 ms
+		    dq 100000000       			; tv_nsec = 50,000,000 ns = 50 ms
 
 section .text
 		global _start
@@ -34,12 +52,14 @@ section .text
 		global addSnake
 		global printMap
 		global moveRight
-		extern ft_get_keypress
+		global get_key_press
 
 _start:
 		mov DWORD [snake_head], 1056
 		mov DWORD [orien], 4
-		mov DWORD [size], 100
+		mov DWORD [size], 3
+		mov BYTE [fruitActive], 1
+		mov DWORD [fruitPos], 1128
 _loopMain:
 		mov rax, 35        				; syscall: nanosleep
     	mov rdi, timespec  				; pointer to timespec
@@ -49,7 +69,7 @@ _loopMain:
 		call constructMap
 		call addSnake
 		call printMap
-		call ft_get_keypress
+		call get_key_press
 		cmp rax, 100
 		jne _try_left
 		cmp DWORD [orien], 2
@@ -80,6 +100,17 @@ _try_esc:
 		call moveLeft
 		call moveUp
 		call moveDown
+		cmp BYTE [fruitActive] , 1
+		jne _endLoopMain
+		xor rax, rax
+		mov eax, DWORD [fruitPos]
+		xor r8, r8
+		mov r8d, [snake_head]
+		cmp eax, r8d
+		jne _endLoopMain
+		mov BYTE [fruitActive], 0
+		inc DWORD [size]
+_endLoopMain:
 		jmp _loopMain
 _exit:
     	mov rax, 60
@@ -244,6 +275,19 @@ printMap:
 _print:
 		cmp rbx, GRID_SIZE
 		jge _ret
+		cmp BYTE [fruitActive], 1
+		jne _tryWall
+		xor rax, rax
+		mov eax, DWORD [fruitPos]
+		cmp rbx, rax
+		jne _tryWall
+		mov rax, 1          ; sys_write
+		mov rdi, 1          ; stdout
+		mov rsi, char_fruit	; pointer to ' '
+		mov rdx, 1          ; length 1 byte
+		syscall
+		jmp _afterWrite
+_tryWall:
 		cmp BYTE [r9 + rbx] , 3
 		jne _trySpace
 		mov rax, 1          ; sys_write
@@ -332,3 +376,65 @@ _termClear:
 		mov rdx, 3          	; length 3 bytes
 		syscall
 		ret
+
+get_key_press:
+		; mov	rdi, [termios_newt]
+		; mov rsi, [termios_oldt]
+
+		;	ioctl(0, TCGETS, &termios_oldt), basically get current terminal info
+		mov rax, SYS_ioctl		; SYS_ioctl system call
+		mov	rdi, STDIN			; Standard Fd in
+		mov rsi, TCGETS			; So it gets and doesnt set
+		lea rdx, [rel termios_oldt]	; Struct where its gonna store the current values
+		syscall
+
+;		MemCpy for termios_oldt to termios_newt
+		mov rcx, 64
+		lea rsi, [rel termios_oldt]
+		lea rdi, [rel termios_newt]
+.copyLoopTermios:
+		mov al, [rsi]
+		mov [rdi], al
+		inc rsi
+		inc rdi
+		loop .copyLoopTermios
+
+;		Modify Termios_newt
+;		newt.c_flag &= ~(ICANON | ECHO)
+;		newt.c_flag is off by 12 bytes
+		mov rax, [rel termios_newt + 12]
+		and rax, ~(ICANON | ECHO)
+		mov [rel termios_newt + 12], rax
+
+;		new.c_cc is offsetted by 16, and VMIN is at +1 and VTIME 0
+;		Honestly this part, idk why its working, but it is, so i wont change it
+		xor rax, rax
+		mov [rel termios_newt + 20], rax	; Termios_newt.c_cc[VTIME] = 1
+		mov [rel termios_newt + 21], rax	; Termios_newt.c_cc[VMIN] = 0
+
+;		Finished modifying termios_newt, just need to apply changes to terminal
+		;	ioctl(0, TCSETS, &termios_oldt), basically sets current terminal info
+		mov rax, SYS_ioctl		; SYS_ioctl system call
+		mov	rdi, STDIN			; Standard Fd in
+		mov rsi, TCSETS			; So it sets and doesnt get
+		lea rdx, [rel termios_newt] ; Struct for the change
+		syscall
+
+;		Calls read(STDIN, &read_buf, 1)
+		mov rax, SYS_read			; Prepare for read syscall
+		mov rdi, STDIN				; Standard Fd in 
+		lea rsi, [rel read_buf]		; Passing reference to read_buf
+		mov rdx, 1					; Only reading a byte
+		syscall
+
+;		Modify terminal again, to revert back to old terminal
+		mov rax, SYS_ioctl		; SYS_ioctl system call
+		mov	rdi, STDIN			; Standard Fd in
+		mov rsi, TCSETS			; So it sets and doesnt get
+		lea rdx, [rel termios_oldt] ; Revert Back to old terminal
+		syscall
+		
+		xor rax, rax
+		movzx eax, BYTE [read_buf]
+		ret
+

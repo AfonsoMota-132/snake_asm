@@ -10,28 +10,22 @@
 #                                                                              #
 # **************************************************************************** #
 
-CFLAGS = -Wall -Wextra -Werror
-CC = cc
-
 NAME = snake
-CSRCS = ft_readline.c
-COBJS = $(CSRCS:.c=.o)
 
-SSRCS = snake.asm
-SOBJS = $(SSRCS:.asm=.o)
+SRCS = snake.asm
+OBJS = $(SRCS:.asm=.o)
 
 
-all: $(COBJS) $(SOBJS) $(NAME)
+all: $(OBJS) $(NAME)
 
-$(NAME): $(COBJS) $(SOBJS)
-	ld $(SOBJS) $(COBJS) -o $(NAME) -dynamic-linker /lib64/ld-linux-x86-64.so.2 -lc
+$(NAME): $(OBJS)
+	ld $(OBJS) -o $(NAME)
 
 %.o : %.asm
 	nasm -f elf64 $< -o $@
 
 clean:
-	rm -fr $(SOBJS)
-	rm -fr $(COBJS)
+	rm -fr $(OBJS)
 
 fclean: clean
 	rm -fr $(NAME)
