@@ -6,6 +6,11 @@ section .note.GNU-stack
 
 %define SYS_read   0
 %define SYS_ioctl  16
+%define SYS_getrandom 318
+%define SYS_gettimeofday 96
+
+%define TCIFLUSH      0
+%define TCFLSH        0x540B
 
 %define STDIN      0
 %define TCGETS     0x5401
@@ -20,12 +25,15 @@ section .bss
 		size resb 4				;	nbr of nodes of snake
 		fruitPos resb 4			;	fruitPos = y * WIDTH + x
 		fruitActive resb 1		;	0 = no fruit	1 = 
+		fruitTime resb 8		;	Time of fruit spawn
+		genTime resb 16			;	Struct for getTimeOfDay
 		snake_head resd 256		;	Array of snake's body, with 2 bytes
 								;	each reprensenting a node
 								;	in the form of nodePos = y * WIDTH + x
 		termios_oldt resb 64	;	reserving 128 (64 * 2), for termios structs
 		termios_newt resb 64	;	for get_key_press
-		read_buf resb 1			;	read buffer for keypress read...
+		read_buf resb 1			;	read buffer for keypress read..
+		rand_byte resb 4 
 
 section .data
 		clear db 27, '[2J'    			; 27 = ESC (0x1B), ANSI code
@@ -101,7 +109,7 @@ _try_esc:
 		call moveUp
 		call moveDown
 		cmp BYTE [fruitActive] , 1
-		jne _endLoopMain
+		jne _verFruitTime
 		xor rax, rax
 		mov eax, DWORD [fruitPos]
 		xor r8, r8
@@ -110,6 +118,25 @@ _try_esc:
 		jne _endLoopMain
 		mov BYTE [fruitActive], 0
 		inc DWORD [size]
+		
+		mov     rax, SYS_gettimeofday	; SYS_gettimeofday
+		lea     rdi, [rel genTime]		; pointer to timeval struct
+		xor     rsi, rsi				; NULL for timezone
+		syscall
+		mov rax, [genTime + 8]
+		mov [fruitTime], rax
+		xor rax, rax
+		call get_random_number
+		add DWORD [fruitTime], eax
+_verFruitTime:
+		mov     rax, SYS_gettimeofday	; SYS_gettimeofday
+		lea     rdi, [rel genTime]		; pointer to timeval struct
+		xor     rsi, rsi				; NULL for timezone
+		syscall
+		mov rax, [genTime + 8]
+		cmp [fruitTime], rax
+		jge _endLoopMain
+		mov BYTE [fruitActive], 1
 _endLoopMain:
 		jmp _loopMain
 _exit:
@@ -434,7 +461,30 @@ get_key_press:
 		lea rdx, [rel termios_oldt] ; Revert Back to old terminal
 		syscall
 		
+;		Even if multiple keypresses at the same time/
+;		too many, that overflows read buffer, it only saves the one who reads
+;		at the moment
+		mov     rax, SYS_ioctl       ; syscall number 16
+		mov     rdi, STDIN           ; file descriptor 0 = stdin
+		mov     rsi, TCFLSH          ; ioctl request: TCFLSH
+		mov     rdx, TCIFLUSH        ; flush input queue
+		syscall
+
 		xor rax, rax
 		movzx eax, BYTE [read_buf]
 		ret
 
+get_random_number:
+    mov rax, SYS_getrandom
+    lea rdi, [rel rand_byte]    ; buffer
+    mov rsi, 4                  ; 4 bytes
+    xor rdx, rdx                ; no flags
+    syscall
+
+    mov eax, [rand_byte]        ; get 4-byte value
+    xor edx, edx
+    mov ecx, 200000                ; upper bound (0–299)
+    div ecx                     ; eax = eax / 300, edx = remainder
+    mov eax, edx                ; eax = random % 300
+	add	eax, 100000
+    ret
