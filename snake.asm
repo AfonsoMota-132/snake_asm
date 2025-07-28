@@ -61,6 +61,7 @@ section .text
 		global printMap
 		global moveRight
 		global get_key_press
+		extern printf
 
 _start:
 		mov DWORD [snake_head], 1056
@@ -78,6 +79,7 @@ _loopMain:
 		call addSnake
 		call printMap
 		call get_key_press
+
 		cmp rax, 100
 		jne _try_left
 		cmp DWORD [orien], 2
@@ -117,23 +119,22 @@ _try_esc:
 		cmp eax, r8d
 		jne _endLoopMain
 		mov BYTE [fruitActive], 0
-		inc DWORD [size]
-		
+		inc DWORD [size]	
 		mov     rax, SYS_gettimeofday	; SYS_gettimeofday
 		lea     rdi, [rel genTime]		; pointer to timeval struct
 		xor     rsi, rsi				; NULL for timezone
 		syscall
-		mov rax, [genTime + 8]
+		mov rax, [genTime]
 		mov [fruitTime], rax
 		xor rax, rax
 		call get_random_number
-		add DWORD [fruitTime], eax
+		add DWORD [fruitTime], 1
 _verFruitTime:
 		mov     rax, SYS_gettimeofday	; SYS_gettimeofday
 		lea     rdi, [rel genTime]		; pointer to timeval struct
 		xor     rsi, rsi				; NULL for timezone
 		syscall
-		mov rax, [genTime + 8]
+		mov rax, [genTime]
 		cmp [fruitTime], rax
 		jge _endLoopMain
 		mov BYTE [fruitActive], 1
@@ -483,8 +484,8 @@ get_random_number:
 
     mov eax, [rand_byte]        ; get 4-byte value
     xor edx, edx
-    mov ecx, 200000                ; upper bound (0–299)
+    mov ecx, 4           		; upper bound (0–4)
     div ecx                     ; eax = eax / 300, edx = remainder
     mov eax, edx                ; eax = random % 300
-	add	eax, 100000
+	add	eax, 1					; pass from (0-4) to (1-4)
     ret

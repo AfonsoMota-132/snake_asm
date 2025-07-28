@@ -19,7 +19,7 @@ OBJS = $(SRCS:.asm=.o)
 all: $(OBJS) $(NAME)
 
 $(NAME): $(OBJS)
-	ld $(OBJS) -o $(NAME)
+	ld $(OBJS) $(NAME)
 
 %.o : %.asm
 	nasm -f elf64 $< -o $@
@@ -32,7 +32,7 @@ fclean: clean
 
 re: fclean all
 
-.PHONY = all clean fclean re 
+# .PHONY = all clean fclean re 
 	
 
 
