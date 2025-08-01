@@ -24,7 +24,7 @@ section .bss
 		orien resb 4			;	where snake is looking at
 		size resb 4				;	nbr of nodes of snake
 		fruitPos resb 4			;	fruitPos = y * WIDTH + x
-		fruitActive resb 1		;	0 = no fruit	1 = 
+		fruitActive resb 4		;	0 = no fruit	1 = 
 		fruitTime resb 8		;	Time of fruit spawn
 		genTime resb 16			;	Struct for getTimeOfDay
 		snake_head resd 256		;	Array of snake's body, with 2 bytes
@@ -48,6 +48,7 @@ section .data
 		char_le db '>'
 		char_do db 'V'
 		char_nl   db 10
+		print db "pos: %d	%d", 10, 0
 		timespec:
 		    dq 0              			; tv_sec = 0
 		    dq 100000000       			; tv_nsec = 50,000,000 ns = 50 ms
@@ -66,7 +67,7 @@ section .text
 _start:
 		mov DWORD [snake_head], 1056
 		mov DWORD [orien], 4
-		mov DWORD [size], 3
+		mov DWORD [size], 32
 		mov BYTE [fruitActive], 1
 		mov DWORD [fruitPos], 1128
 _loopMain:
@@ -78,6 +79,10 @@ _loopMain:
 		call constructMap
 		call addSnake
 		call printMap
+		lea rdi, [print]
+		mov rsi, [fruitPos]
+		mov rdx, [fruitActive]
+		call printf
 		call get_key_press
 
 		cmp rax, 100
@@ -130,6 +135,8 @@ _try_esc:
 		call get_random_number
 		add DWORD [fruitTime], 1
 _verFruitTime:
+		cmp BYTE [fruitActive], 1
+		je _endLoopMain
 		mov     rax, SYS_gettimeofday	; SYS_gettimeofday
 		lea     rdi, [rel genTime]		; pointer to timeval struct
 		xor     rsi, rsi				; NULL for timezone
@@ -137,8 +144,21 @@ _verFruitTime:
 		mov rax, [genTime]
 		cmp [fruitTime], rax
 		jge _endLoopMain
-		mov BYTE [fruitActive], 1
+		lea rdi, [print]
+		mov rsi, [fruitPos]
+		mov rdx, [fruitActive]
+		call printf
+		call get_random_spawn
+		mov [fruitPos], rax
+		call ver_fruit_spawn
+		cmp rax, 1
+		jne _endLoopMain
+		mov BYTE [rel fruitActive], 1
 _endLoopMain:
+		lea rdi, [print]
+		mov rsi, [fruitPos]
+		mov rdx, [fruitActive]
+		call printf
 		jmp _loopMain
 _exit:
     	mov rax, 60
@@ -452,7 +472,7 @@ get_key_press:
 		mov rax, SYS_read			; Prepare for read syscall
 		mov rdi, STDIN				; Standard Fd in 
 		lea rsi, [rel read_buf]		; Passing reference to read_buf
-		mov rdx, 1					; Only reading a byte
+		mov rdx, 1					; Only readin -dynamic-linker /lib64/ld-linux-x86-64.so.2 -lcg a byte
 		syscall
 
 ;		Modify terminal again, to revert back to old terminal
@@ -467,7 +487,7 @@ get_key_press:
 ;		at the moment
 		mov     rax, SYS_ioctl       ; syscall number 16
 		mov     rdi, STDIN           ; file descriptor 0 = stdin
-		mov     rsi, TCFLSH          ; ioctl request: TCFLSH
+		mov     rsi, TCFLSH          ; io -dynamic-linker /lib64/ld-linux-x86-64.so.2 -lcctl request: TCFLSH
 		mov     rdx, TCIFLUSH        ; flush input queue
 		syscall
 
@@ -484,8 +504,45 @@ get_random_number:
 
     mov eax, [rand_byte]        ; get 4-byte value
     xor edx, edx
-    mov ecx, 4           		; upper bound (0–4)
+    mov ecx, 3           		; upper bound (0–4)
     div ecx                     ; eax = eax / 300, edx = remainder
     mov eax, edx                ; eax = random % 300
-	add	eax, 1					; pass from (0-4) to (1-4)
+	add	eax, 1					; pass from (0-3) to (1-4)
     ret
+
+get_random_spawn:
+    mov rax, SYS_getrandom
+    lea rdi, [rel rand_byte]    ; buffer
+    mov rsi, 4                  ; 4 bytes
+    xor rdx, rdx                ; no flags
+    syscall
+
+    mov eax, [rand_byte]        ; get 4-byte value
+    xor edx, edx
+    mov ecx, 2048           	; upper bound (0–2048)
+    div ecx                     ; eax = eax / 300, edx = remainder
+    mov eax, edx                ; eax = random % 300
+    ret
+
+ver_fruit_spawn:
+	mov rax, [fruitPos]
+	mov r9, grid
+	cmp BYTE [r9 + rax], 2
+	je valid_ret
+	xor rax, rax
+; loopVer:
+; 	cmp rax, [size]
+; 	jge valid_ret
+; 	mov r8d, [snake_head + eax * 4]
+; 	cmp r8d, [fruitPos]
+; 	je bad_ret
+; 	inc eax
+; 	jmp loopVer
+;
+bad_ret:
+	xor rax, rax
+	ret
+valid_ret:
+	xor rax, rax
+	mov rax, 1
+	ret

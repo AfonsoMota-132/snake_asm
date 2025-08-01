@@ -19,7 +19,7 @@ OBJS = $(SRCS:.asm=.o)
 all: $(OBJS) $(NAME)
 
 $(NAME): $(OBJS)
-	ld $(OBJS) $(NAME)
+	ld $(OBJS) -o $(NAME)  -dynamic-linker /lib64/ld-linux-x86-64.so.2 -lc
 
 %.o : %.asm
 	nasm -f elf64 $< -o $@
